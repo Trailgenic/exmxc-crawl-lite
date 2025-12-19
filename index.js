@@ -102,8 +102,8 @@ app.get("/health", (_, res) => {
 // ==============================================
 // Start server
 // ==============================================
-const port = process.env.PORT;
+const PORT = process.env.PORT || 8080;
 
-app.listen(port, "0.0.0.0", () => {
-  console.log(`exmxc-crawl-lite listening on ${port}`);
+app.listen(PORT, "0.0.0.0", () => {
+  console.log(`exmxc-crawl-lite listening on ${PORT}`);
 });
