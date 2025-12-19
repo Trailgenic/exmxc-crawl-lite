@@ -1,15 +1,9 @@
 // ==============================================
-// Node 18 / Railway / Undici global fix
-// MUST run before cheerio is loaded
-// ==============================================
-import { File } from "undici";
-globalThis.File = File;
-
-// ==============================================
 // Core imports
 // ==============================================
 import express from "express";
 import axios from "axios";
+import * as cheerio from "cheerio";
 
 // ==============================================
 // App setup
@@ -18,24 +12,43 @@ const app = express();
 app.use(express.json({ limit: "1mb" }));
 
 // ==============================================
-// Crawl-Lite Endpoint
+// Root endpoint (Railway edge requires this)
+// ==============================================
+app.get("/", (_req, res) => {
+  res.json({
+    service: "exmxc-crawl-lite",
+    status: "ok",
+    endpoints: ["/health", "/crawl-lite"]
+  });
+});
+
+// ==============================================
+// Health check
+// ==============================================
+app.get("/health", (_req, res) => {
+  res.json({
+    ok: true,
+    service: "exmxc-crawl-lite"
+  });
+});
+
+// ==============================================
+// Crawl-Lite Endpoint (single page only)
 // ==============================================
 app.post("/crawl-lite", async (req, res) => {
   const { url } = req.body;
 
-  if (!url) {
+  if (!url || typeof url !== "string") {
     return res.status(400).json({
       success: false,
-      error: "Missing URL"
+      error: "Missing or invalid URL"
     });
   }
 
   try {
-    // ⚠️ Dynamically import cheerio AFTER patch
-    const cheerio = await import("cheerio");
-
     const resp = await axios.get(url, {
       timeout: 15000,
+      maxContentLength: 2_000_000, // hard guard
       maxRedirects: 5,
       headers: {
         "User-Agent":
@@ -48,9 +61,9 @@ app.post("/crawl-lite", async (req, res) => {
     const html = resp.data;
     const $ = cheerio.load(html);
 
-    // ==============================================
+    // ----------------------------------------------
     // Extract signals
-    // ==============================================
+    // ----------------------------------------------
     const title = $("title").first().text().trim() || "";
     const description =
       $('meta[name="description"]').attr("content") || "";
@@ -58,9 +71,9 @@ app.post("/crawl-lite", async (req, res) => {
     const canonical =
       $('link[rel="canonical"]').attr("href") || url;
 
-    // ==============================================
+    // ----------------------------------------------
     // Extract JSON-LD
-    // ==============================================
+    // ----------------------------------------------
     const schemaObjects = [];
     $('script[type="application/ld+json"]').each((_, el) => {
       try {
@@ -77,6 +90,7 @@ app.post("/crawl-lite", async (req, res) => {
       title,
       description,
       canonical,
+      schemaCount: schemaObjects.length,
       schemaObjects
     });
 
@@ -90,19 +104,9 @@ app.post("/crawl-lite", async (req, res) => {
 });
 
 // ==============================================
-// Health check
+// Start server (Railway-safe)
 // ==============================================
-app.get("/health", (_, res) => {
-  res.json({
-    ok: true,
-    service: "exmxc-crawl-lite"
-  });
-});
-
-// ==============================================
-// Start server
-// ==============================================
-const PORT = process.env.PORT || 8080;
+const PORT = Number(process.env.PORT) || 8080;
 
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`exmxc-crawl-lite listening on ${PORT}`);
