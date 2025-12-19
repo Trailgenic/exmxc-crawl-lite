@@ -1,55 +1,41 @@
 // ==============================================
-// Core imports
+// exmxc-crawl-lite — Railway / Node 18 SAFE VERSION
 // ==============================================
-import express from "express";
-import axios from "axios";
-import * as cheerio from "cheerio";
 
-// ==============================================
-// App setup
-// ==============================================
+import express from "express";
+
 const app = express();
 app.use(express.json({ limit: "1mb" }));
 
 // ==============================================
-// Root endpoint (Railway edge requires this)
-// ==============================================
-app.get("/", (_req, res) => {
-  res.json({
-    service: "exmxc-crawl-lite",
-    status: "ok",
-    endpoints: ["/health", "/crawl-lite"]
-  });
-});
-
-// ==============================================
-// Health check
-// ==============================================
-app.get("/health", (_req, res) => {
-  res.json({
-    ok: true,
-    service: "exmxc-crawl-lite"
-  });
-});
-
-// ==============================================
-// Crawl-Lite Endpoint (single page only)
+// Crawl-Lite Endpoint
 // ==============================================
 app.post("/crawl-lite", async (req, res) => {
   const { url } = req.body;
 
-  if (!url || typeof url !== "string") {
+  if (!url) {
     return res.status(400).json({
       success: false,
-      error: "Missing or invalid URL"
+      error: "Missing URL"
     });
   }
 
   try {
-    const resp = await axios.get(url, {
-      timeout: 15000,
-      maxContentLength: 2_000_000, // hard guard
-      maxRedirects: 5,
+    // ----------------------------------------------
+    // CRITICAL: runtime imports in correct order
+    // ----------------------------------------------
+    const undici = await import("undici");
+    if (!globalThis.File) {
+      globalThis.File = undici.File;
+    }
+
+    const cheerio = await import("cheerio");
+    const fetch = undici.fetch;
+
+    // ----------------------------------------------
+    // Fetch HTML (NO axios)
+    // ----------------------------------------------
+    const resp = await fetch(url, {
       headers: {
         "User-Agent":
           "Mozilla/5.0 (compatible; exmxc-crawl-lite/1.0; +https://exmxc.ai)",
@@ -58,7 +44,11 @@ app.post("/crawl-lite", async (req, res) => {
       }
     });
 
-    const html = resp.data;
+    if (!resp.ok) {
+      throw new Error(`Fetch failed with status ${resp.status}`);
+    }
+
+    const html = await resp.text();
     const $ = cheerio.load(html);
 
     // ----------------------------------------------
@@ -90,11 +80,12 @@ app.post("/crawl-lite", async (req, res) => {
       title,
       description,
       canonical,
-      schemaCount: schemaObjects.length,
       schemaObjects
     });
 
   } catch (err) {
+    console.error("crawl-lite error:", err);
+
     res.status(502).json({
       success: false,
       error: "crawl-lite failed",
@@ -104,9 +95,19 @@ app.post("/crawl-lite", async (req, res) => {
 });
 
 // ==============================================
-// Start server (Railway-safe)
+// Health check
 // ==============================================
-const PORT = Number(process.env.PORT) || 8080;
+app.get("/health", (_, res) => {
+  res.json({
+    ok: true,
+    service: "exmxc-crawl-lite"
+  });
+});
+
+// ==============================================
+// Start server (Railway-compliant)
+// ==============================================
+const PORT = process.env.PORT || 8080;
 
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`exmxc-crawl-lite listening on ${PORT}`);
