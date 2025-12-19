@@ -1,16 +1,15 @@
 // ==============================================
-// Node 18 / undici compatibility fix
-// Railway + axios requires global File
+// Node 18 / Railway / Undici global fix
+// MUST run before cheerio is loaded
 // ==============================================
 import { File } from "undici";
-global.File = File;
+globalThis.File = File;
 
 // ==============================================
 // Core imports
 // ==============================================
 import express from "express";
 import axios from "axios";
-import * as cheerio from "cheerio";
 
 // ==============================================
 // App setup
@@ -32,6 +31,9 @@ app.post("/crawl-lite", async (req, res) => {
   }
 
   try {
+    // ⚠️ Dynamically import cheerio AFTER patch
+    const cheerio = await import("cheerio");
+
     const resp = await axios.get(url, {
       timeout: 15000,
       maxRedirects: 5,
@@ -47,7 +49,7 @@ app.post("/crawl-lite", async (req, res) => {
     const $ = cheerio.load(html);
 
     // ==============================================
-    // Extract core signals
+    // Extract signals
     // ==============================================
     const title = $("title").first().text().trim() || "";
     const description =
@@ -57,21 +59,17 @@ app.post("/crawl-lite", async (req, res) => {
       $('link[rel="canonical"]').attr("href") || url;
 
     // ==============================================
-    // Extract JSON-LD schemas
+    // Extract JSON-LD
     // ==============================================
     const schemaObjects = [];
     $('script[type="application/ld+json"]').each((_, el) => {
       try {
-        const parsed = JSON.parse($(el).text());
-        schemaObjects.push(parsed);
+        schemaObjects.push(JSON.parse($(el).text()));
       } catch {
-        // ignore malformed schema blocks
+        // ignore malformed schema
       }
     });
 
-    // ==============================================
-    // Response
-    // ==============================================
     res.json({
       success: true,
       mode: "crawl-lite",
@@ -79,8 +77,7 @@ app.post("/crawl-lite", async (req, res) => {
       title,
       description,
       canonical,
-      schemaObjects,
-      html
+      schemaObjects
     });
 
   } catch (err) {
